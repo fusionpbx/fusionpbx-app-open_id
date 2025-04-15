@@ -11,7 +11,7 @@ class open_id_google implements open_id_authenticator {
 	protected $redirect_uri;
 	protected $scope;
 	protected $state;
-	protected $discovery_url = "https://accounts.google.com/.well-known/openid-configuration";
+	protected $discovery_url;
 	protected $auth_endpoint;
 	protected $token_endpoint;
 	protected $userinfo_endpoint;
@@ -30,7 +30,13 @@ class open_id_google implements open_id_authenticator {
 	protected $match_username_to_email;
 
 	/**
-	 * Constructor.
+	 * When true, no errors will be thrown. When false, errors can be thrown to help with debugging
+	 * @var bool
+	 */
+	private $suppress_errors;
+
+	/**
+	 * Set up the Google URL parameters and object variables
 	 *
 	 * @param string $client_id     Your Google Client ID.
 	 * @param string $client_secret Your Google Client Secret.
@@ -39,12 +45,38 @@ class open_id_google implements open_id_authenticator {
 	 */
 	public function __construct($scope = "openid email profile") {
 		global $settings;
-		$this->client_id = $settings->get('open_id', 'client_id');
-		$this->client_secret = $settings->get('open_id', 'client_secret');
-		$this->redirect_uri = $settings->get('open_id', 'redirect_uri');
+
+		// Set up the console.cloud.google.com settings
+		$this->client_id = $settings->get('open_id', 'google_client_id');
+		$this->client_secret = $settings->get('open_id', 'google_client_secret');
+		$this->redirect_uri = $settings->get('open_id', 'google_redirect_uri');
+
+		// Match the google email address to the user email address field in v_users table
 		$this->match_username_to_email = $settings->get('open_id', 'use_email_as_username', true);
-		$this->suppress_errors = $settings->get('open_id', 'suppress_errors', true);
+
+		// Match the google email address to the username field in v_users table
 		$this->unique_username = $settings->get('users', 'unique', false);
+
+		// Set the suppress errors with a default of true to avoid UI interruption
+		$this->suppress_errors = $settings->get('open_id', 'suppress_errors', true);
+
+		// Get the google_metadata_domain
+		$domain = $settings->get('open_id', 'google_metadata_domain');
+
+		// When errors are allowed and domain is empty throw an error
+		if (empty($domain) && !$this->suppress_errors) throw new \InvalidArgumentException('google_metadata_domain must not be empty');
+
+		// Get the google_metadata_path
+		$path = $settings->get('open_id', 'google_metadata_path');
+
+		// When errors are allowed and path is empty throw an error
+		if (empty($path) && !$this->suppress_errors) throw new \InvalidArgumentException('google_metadata_path must not be empty');
+
+		// Ensure path starts with a slash (/)
+		if (!str_starts_with($path, '/')) $path = '/' . $path;
+		$this->discovery_url = 'https://' . $domain . $path;
+
+		// Set the scope
 		$this->scope = $scope;
 	}
 
