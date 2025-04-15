@@ -28,15 +28,39 @@
 
 require_once dirname(__DIR__, 2) . '/resources/require.php';
 
-//redirect to google
-if (isset($_GET['action']) && $_GET['action'] === 'openid_google') {
-	$google = new google_authentication();
-	$result = $google->authenticate();
-	if ($result !== false) {
+//redirect to open_id authentication
+if (isset($_GET['action']) && $settings->get('open_id', 'enabled', false)) {
+
+	//decode url
+	$open_id_authenticator = urldecode($_GET['action']);
+
+	//sanitize the name like auto_loader
+	$open_id_authenticator = preg_replace('[^a-zA-Z0-9_]', '', $open_id_authenticator);
+
+	//make sure the class exists
+	if (!class_exists($open_id_authenticator)) {
+		exit();
+	}
+
+	//create the authenticator
+	$authenticator = new $open_id_authenticator();
+
+	//make sure it implements the open_id_authenticator
+	if (!($authenticator instanceof open_id_authenticator)) {
+		exit();
+	}
+
+	//get the result array from the authenticator
+	$result = $authenticator->authenticate();
+	if (!empty($result)) {
+		//create the user session
 		authentication::create_user_session($result);
-		//redirect
+
+		//redirect to landing page
 		$landing_page = $settings->get('login', 'destination', '/core/dashboard');
 		header('Location: ' . $landing_page);
+
+		//finished successfully
 		exit();
 	}
 }

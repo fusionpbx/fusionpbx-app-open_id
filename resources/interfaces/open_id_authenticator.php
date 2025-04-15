@@ -30,8 +30,11 @@
  *
  * @author Tim Fry <tim@fusionpbx.com>
  */
-interface openid {
+interface open_id_authenticator {
+	/**
+	 * authenticate must return an array
+	 */
+	public function authenticate(): array;
 	public static function get_banner_image(): string;
-	public static function get_banner_url(): string;
 	public static function get_banner_alt(): string;
 }

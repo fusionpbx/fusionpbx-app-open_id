@@ -1,6 +1,10 @@
 <?php
 
-class google implements openid {
+class open_id_google implements open_id_authenticator {
+
+	//
+	// OpenID Connect State Variables
+	//
 
 	protected $client_id;
 	protected $client_secret;
@@ -14,6 +18,18 @@ class google implements openid {
 	protected $end_session_endpoint;
 
 	/**
+	 * When true, the global default settings are set to use a globally unique username
+	 * @var bool
+	 */
+	protected $unique_username;
+
+	/**
+	 * When true, the global default settings are set to match on the email address field of the user.
+	 * @var bool
+	 */
+	protected $match_username_to_email;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param string $client_id     Your Google Client ID.
@@ -23,18 +39,21 @@ class google implements openid {
 	 */
 	public function __construct($scope = "openid email profile") {
 		global $settings;
-		$this->client_id = $settings->get('openid', 'openid_client_id');
-		$this->client_secret = $settings->get('openid', 'openid_client_secret');
-		$this->redirect_uri = $settings->get('openid', 'openid_redirect_uri');
+		$this->client_id = $settings->get('open_id', 'client_id');
+		$this->client_secret = $settings->get('open_id', 'client_secret');
+		$this->redirect_uri = $settings->get('open_id', 'redirect_uri');
+		$this->match_username_to_email = $settings->get('open_id', 'use_email_as_username', true);
+		$this->suppress_errors = $settings->get('open_id', 'suppress_errors', true);
+		$this->unique_username = $settings->get('users', 'unique', false);
 		$this->scope = $scope;
 	}
 
 	/**
 	 * When successful, the array with the authorized key set to true with user details. When the function fails to authenticate a user a boolean false is returned
 	 * @global database $database
-	 * @return bool|array Returns an array with user details or false when failed authentication
+	 * @return array Returns an array with user details or false when failed authentication
 	 */
-	public function authenticate() {
+	public function authenticate(): array {
 
 		//
 		// Initialize the result as an array with failed authentication
@@ -45,8 +64,8 @@ class google implements openid {
 		$this->load_discovery();
 		if (!isset($_GET['code'])) {
 			//detect redirection loop
-			if (!empty($_SESSION['openid_authorize']) && $_SESSION['openid_authorize']) {
-				$_SESSION['openid_authorize'] = false;
+			if (!empty($_SESSION['open_id_authorize']) && $_SESSION['open_id_authorize']) {
+				$_SESSION['open_id_authorize'] = false;
 				//redirect loop detected
 				die('unable to redirect');
 			}
@@ -54,9 +73,9 @@ class google implements openid {
 			//
 			// Set the state and code_verifier
 			//
-			$_SESSION['openid_state'] = bin2hex(random_bytes(5));
-			$_SESSION['openid_code_verifier'] = bin2hex(random_bytes(50));
-			$_SESSION['openid_authorize'] = true;
+			$_SESSION['open_id_state'] = bin2hex(random_bytes(5));
+			$_SESSION['open_id_code_verifier'] = bin2hex(random_bytes(50));
+			$_SESSION['open_id_authorize'] = true;
 
 			//
 			// Send the authentication request to the authorization server
@@ -64,7 +83,7 @@ class google implements openid {
 			$authorize_url = $this->get_authorization_url();
 
 			//
-			// Not logged in yet
+			// Not logged in to goolge yet
 			//
 			header('Location: ' . $authorize_url);
 			exit();
@@ -97,10 +116,23 @@ class google implements openid {
 				$user_info = $this->get_user_info($access_token);
 				if (isset($user_info['email'])) {
 					global $database;
-					$sql = "select user_uuid, username, u.domain_uuid, d.domain_name from v_users u "
-							. "left outer join v_domains d on d.domain_uuid = u.domain_uuid "
-							. "where user_email = :user_email and user_enabled = 'true' "
-							. "limit 1 ";
+					$sql  = 'select user_uuid, username, u.domain_uuid, d.domain_name from v_users u';
+					$sql .=	' left outer join v_domains d on d.domain_uuid = u.domain_uuid';
+					// Global or Domain Default Settings must be set to use either the user_email field or
+					// a unique username for all users
+					if ($this->match_username_to_email) {
+						$sql .=	' where user_email = :user_email';
+					} elseif ($this->unique_username) {
+						$sql .= ' where username = :username';
+					} else {
+						if (!$this->suppress_errors) {
+							throw new InvalidArgumentException("Global or Domain Default Settings must be set to use either the user_email field or a unique username for all users using 'unique' set to 'true' in category 'Users'");
+						}
+						//empty result
+						return $result;
+					}
+					$sql .= " and user_enabled = 'true'";
+					$sql .=	' limit 1';
 					$parameters = [];
 
 					//
@@ -114,23 +146,23 @@ class google implements openid {
 					$user = $database->select($sql, $parameters, 'row');
 					if (empty($user)) {
 						//
-						// The user email was not found so authentication failed
+						// The user was not found so authentication failed so return empty result
 						//
-						return false;
+						return $result;
 					}
 				} else {
 					//
-					// Google did not authenticate the access token or user cancelled
+					// Google did not authenticate the access token or user cancelled so return empty result
 					//
-					return false;
+					return $result;
 				}
 
 				//
 				// Save necessary tokens so we can logout
 				//
-				$_SESSION['openid_access_token'] = $access_token;
-				$_SESSION['openid_session_token'] = $id_token;
-				$_SESSION['openid_end_session'] = $this->end_session_endpoint;
+				$_SESSION['open_id_access_token'] = $access_token;
+				$_SESSION['open_id_session_token'] = $id_token;
+				$_SESSION['open_id_end_session'] = $this->end_session_endpoint;
 
 				//
 				// Set up the response from the plugin to the caller
@@ -149,13 +181,13 @@ class google implements openid {
 				$_SESSION['authorized'] = true;
 
 				//
-				// Return the array
+				// Return the filled array
 				//
 				return $result;
 			}
 		}
 
-		return false;
+		return $result;
 	}
 
 	/**
@@ -182,14 +214,14 @@ class google implements openid {
 	 */
 	public function get_authorization_url() {
 		// Generate a state value for CSRF protection.
-		$this->state = $_SESSION['openid_state'];
+		$this->state = $_SESSION['open_id_state'];
 
 		$params = [
 			'client_id' => $this->client_id,
 			'redirect_uri' => $this->redirect_uri,
 			'response_type' => 'code',
 			'scope' => $this->scope,
-			'state' => $_SESSION['openid_state'],
+			'state' => $_SESSION['open_id_state'],
 			'prompt' => 'consent',
 			'access_type' => 'offline'
 		];
@@ -253,11 +285,9 @@ class google implements openid {
 		return '';
 	}
 
-	public static function get_banner_url(): string {
-		return '/app/openid/openid.php?action=openid_google';
-	}
-
 	public static function get_banner_alt(): string {
-		return 'Sign-in With Google';
+		$text = new text();
+		$text_array = $text->get();
+		return $text_array['alt-banner'] ?? 'Sign-in Using Google';
 	}
 }
