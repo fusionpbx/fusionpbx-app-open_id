@@ -71,6 +71,20 @@ class open_id_google implements open_id_authenticator {
 		$this->client_secret = $settings->get('open_id', 'google_client_secret');
 		$this->redirect_uri = $settings->get('open_id', 'google_redirect_uri');
 
+		//
+		// Replace the {$domain_name} placeholder for user in redirect_uri
+		//
+		if (str_contains($this->redirect_uri, '{$domain_name}')) {
+			$this->redirect_uri = str_replace('{$domain_name}', $_SERVER['HTTP_HOST'], $this->redirect_uri);
+		}
+
+		//
+		// Replace the {$plugin} placeholder for user
+		//
+		if (str_contains($this->redirect_uri, '{$plugin}')) {
+			$this->redirect_uri = str_replace('{$plugin}', self::class, $this->redirect_uri);
+		}
+
 		// Get the field mapping for the google email address to the user email address or username field in v_users table
 		$mapping = $settings->get('open_id', 'google_username_mapping');
 

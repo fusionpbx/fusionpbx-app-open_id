@@ -106,7 +106,21 @@ class open_id_okta implements open_id_authenticator, logout_event {
 		$this->client_secret = $settings->get('open_id', 'okta_client_secret');
 		$this->redirect_uri = $settings->get('open_id', 'okta_redirect_uri');	//, $_SERVER['REQUEST_SCHEME'] . '://' . $_SERVER['HTTP_HOST'] . '/app/open_id/open_id.php'
 
-		// Get the field mapping for the google email address to the user email address or username field in v_users table
+		//
+		// Replace the {$domain_name} placeholder for user
+		//
+		if (str_contains($this->redirect_uri, '{$domain_name}')) {
+			$this->redirect_uri = str_replace('{$domain_name}', $_SERVER['HTTP_HOST'], $this->redirect_uri);
+		}
+
+		//
+		// Replace the {$plugin} placeholder for user
+		//
+		if (str_contains($this->redirect_uri, '{$plugin}')) {
+			$this->redirect_uri = str_replace('{$plugin}', self::class, $this->redirect_uri);
+		}
+
+		// Get the field mapping for the okta email address to the user email address or username field in v_users table
 		$mapping = $settings->get('open_id', 'okta_username_mapping');
 
 		// When errors are allowed and the field mapping is empty throw an error
@@ -115,7 +129,7 @@ class open_id_okta implements open_id_authenticator, logout_event {
 		// When errors are allowed and the mapping does not have an equals (=) sign throw an error
 		if (!$this->suppress_errors && !str_contains($mapping, '=')) throw new \InvalidArgumentException('okta_username_mapping must be in the form of okta_oidc_field=user_column');
 
-		// Map the Google OpenID Connect (OIDC) field to the user table field to validate the user exists
+		// Map the OKTA OpenID Connect (OIDC) field to the user table field to validate the user exists
 		[$okta_field, $table_field] = explode('=', $mapping, 2);
 
 		// Trim the whitespace for field names and store in the object
