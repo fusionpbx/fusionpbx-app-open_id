@@ -74,6 +74,9 @@ class open_id_okta implements open_id_authenticator, logout_event {
 	 * @var string
 	 */
 	public $curl_error;
+	private $table_field;
+	private $okta_field;
+	private $suppress_errors;
 
 	/**
 	 * Create an authentication object for OpenID Connect
@@ -93,10 +96,43 @@ class open_id_okta implements open_id_authenticator, logout_event {
 			]);
 		}
 
+		// Set the suppress errors with a default of true to avoid UI interruption
+		$this->suppress_errors = $settings->get('open_id', 'suppress_errors', true);
+
+		//
+		// Get the client ID and secret
+		//
+		$this->client_id = $settings->get('open_id', 'okta_client_id');
+		$this->client_secret = $settings->get('open_id', 'okta_client_secret');
+		$this->redirect_uri = $settings->get('open_id', 'okta_redirect_uri');	//, $_SERVER['REQUEST_SCHEME'] . '://' . $_SERVER['HTTP_HOST'] . '/app/open_id/open_id.php'
+
+		// Get the field mapping for the google email address to the user email address or username field in v_users table
+		$mapping = $settings->get('open_id', 'okta_username_mapping');
+
+		// When errors are allowed and the field mapping is empty throw an error
+		if (!$this->suppress_errors && empty($mapping)) throw new \InvalidArgumentException('okta_username_mapping must not be empty');
+
+		// When errors are allowed and the mapping does not have an equals (=) sign throw an error
+		if (!$this->suppress_errors && !str_contains($mapping, '=')) throw new \InvalidArgumentException('okta_username_mapping must be in the form of okta_oidc_field=user_column');
+
+		// Map the Google OpenID Connect (OIDC) field to the user table field to validate the user exists
+		[$okta_field, $table_field] = explode('=', $mapping, 2);
+
+		// Trim the whitespace for field names and store in the object
+		$this->okta_field = trim($okta_field);
+		$this->table_field = trim($table_field);
+
+		// Test that both fields for lookup are not empty
+		if (!$this->suppress_errors && empty($this->okta_field)) throw new \InvalidArgumentException('OKTA OpenID Connect field must not be emtpy in okta_oidc_field default settings');
+		if (!$this->suppress_errors && empty($this->table_field)) throw new \InvalidArgumentException('Users table field must not be emtpy in okta_oidc_field default settings');
+
+		// Test the 'table_field' column exists in the v_users table
+		if (!$this->suppress_errors && !empty($this->table_field) && !$settings->database()->column_exists(database::TABLE_PREFIX . 'users', $this->table_field)) throw new \InvalidArgumentException("Users table field $this->table_field does not exist in the users table");
+
 		//
 		// Set up the URL for openID
 		//
-		$metadata_domain = $settings->get('authentication', 'openid_metadata_domain');
+		$metadata_domain = $settings->get('open_id', 'okta_metadata_domain');
 
 		//
 		// We must use a secure protocol to connect
@@ -122,20 +158,9 @@ class open_id_okta implements open_id_authenticator, logout_event {
 		$this->metadata_uri = $metadata_domain . 'oauth2' . $metadata_server . '/.well-known/oauth-authorization-server';
 
 		//
-		// Get the client ID and secret
-		//
-		$this->client_id = $settings->get('open_id', 'okta_client_id', '');
-		$this->client_secret = $settings->get('open_id', 'okta_client_secret', '');
-
-		//
 		// Get the login destination using /core/dashboard as default
 		//
 		$this->login_destination = $settings->get('login', 'destination', '/core/dashboard');
-
-		//
-		// Redirect URI must match the openID setting
-		//
-		$this->redirect_uri = $settings->get('open_id', 'openid_redirect_uri', $_SERVER['REQUEST_SCHEME'] . '://' . $_SERVER['HTTP_HOST'] . '/login.php');
 
 		//
 		// Error messages reported by cURL requests
@@ -232,17 +257,9 @@ class open_id_okta implements open_id_authenticator, logout_event {
 		}
 
 		//
-		// Ensure openid is enabled before trying to logout to authentication server
+		// Set up the URL for OKTA OpenID
 		//
-		$methods = $settings->get('authentication', 'methods', []);
-		if (!in_array(basename(__FILE__, '.php'), $methods)) {
-			return false;
-		}
-
-		//
-		// Set up the URL for openID
-		//
-		$metadata_domain = $settings->get('authentication', 'openid_metadata_domain');
+		$metadata_domain = $settings->get('open_id', 'openid_metadata_domain');
 
 		//
 		// We must use a secure protocol to connect
@@ -257,7 +274,7 @@ class open_id_okta implements open_id_authenticator, logout_event {
 		//
 		// Get the server name
 		//
-		$metadata_server = $settings->get('authentication', 'openid_metadata_server', '');
+		$metadata_server = $settings->get('open_id', 'openid_metadata_server', '');
 		if (!str_starts_with($metadata_server, '/')) {
 			$metadata_server = '/' . $metadata_server;
 		}
@@ -265,7 +282,7 @@ class open_id_okta implements open_id_authenticator, logout_event {
 		//
 		// Complete the logout URI variables
 		//
-		$redirect_uri = urlencode($settings->get('authentication', 'openid_redirect_uri', $_SERVER['REQUEST_SCHEME'] . '://' . $_SERVER['HTTP_HOST'] . '/login.php'));
+		$redirect_uri = urlencode($settings->get('open_id', 'openid_redirect_uri', $_SERVER['REQUEST_SCHEME'] . '://' . $_SERVER['HTTP_HOST'] . '/login.php'));
 		$logout_url = $_SESSION['openid_end_session'] ?? null;
 		$token = $_SESSION['openid_session_token'] ?? null;
 
@@ -294,6 +311,9 @@ class open_id_okta implements open_id_authenticator, logout_event {
 	 * @return array Returns user data associative array if authentication is successful, or an empty array otherwise.
 	 */
 	public function authenticate(): array {
+		// Set default return value
+		$result = [];
+
 		// First we need to get the authentication metadata from the openid server
 		$metadata = self::post($this->metadata_uri, [], $this->curl_error);
 
@@ -355,38 +375,49 @@ class open_id_okta implements open_id_authenticator, logout_event {
 			// The token should now have an active boolean true/false
 			if ($id_token['active']) {
 				global $database;
-				$sql = "select user_uuid, username, domain_uuid from v_users where user_email = :user_email and user_enabled = 'true' limit 1";
-				$parameters = [];
+				$sql  = 'select user_uuid, username, u.domain_uuid, d.domain_name';
+				$sql .= ' from v_users u';
+				$sql .=	' left outer join v_domains d on d.domain_uuid = u.domain_uuid';
+				$sql .= " where $this->table_field = :$this->table_field";
+				$sql .= " and user_enabled = 'true'";
+				$sql .= " limit 1";
 
-				//username is the email address of user
-				$parameters['user_email'] = $id_token['username'];
+				//
+				// Use the field from okta to find user in the v_users table
+				//
+				$parameters = [];
+				$parameters[$this->table_field] = $id_token[$this->okta_field];
 
 				//get the user array from the local database
 				$user = $database->select($sql, $parameters, 'row');
 
 				//couldn't find a matching user in the database
 				if (empty($user)) {
-					return false;
+					return $result;
 				}
-				$result = [];
 
 				//save necessary tokens so we can logout
 				$_SESSION['openid_access_token'] = $access_token['access_token'];
 				$_SESSION['openid_session_token'] = $access_token['id_token'];
 				$_SESSION['openid_end_session'] = $metadata['end_session_endpoint'];
+
 				//set up the response from the plugin
-				$result["plugin"] = "openid";
+				$result["plugin"] = self::class;
+				$result["domain_uuid"] = $user['domain_uuid'];
 				$result["domain_name"] = $user['domain_name'];
 				$result["username"] = $user['username'];
 				$result["user_uuid"] = $user['user_uuid'];
-				$result["domain_uuid"] = $user['domain_uuid'];
+
 				$result["user_email"] = $id_token['username'];
-				$result["authorized"] = $id_token['active'];
-				//return the array
-				return $result;
+				$result["authorized"] = true;
+
+				//
+				// Remove the failed login message
+				//
+				$_SESSION['authorized'] = true;
 			}
-			// The token was false so return false
-			return false;
+			// Return the login result
+			return $result;
 		}
 	}
 
