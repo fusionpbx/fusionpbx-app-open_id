@@ -24,16 +24,22 @@ class open_id_google implements open_id_authenticator {
 	protected $unique_username;
 
 	/**
-	 * When true, the global default settings are set to match on the email address field of the user.
-	 * @var bool
-	 */
-	protected $match_username_to_email;
-
-	/**
 	 * When true, no errors will be thrown. When false, errors can be thrown to help with debugging
 	 * @var bool
 	 */
-	private $suppress_errors;
+	protected $suppress_errors;
+
+	/**
+	 * Field name that contains the OpenID Connect field
+	 * @var string
+	 */
+	protected $google_field;
+
+	/**
+	 * Field name that contains the users table field
+	 * @var string
+	 */
+	protected $table_field;
 
 	/**
 	 * Set up the Google URL parameters and object variables
@@ -51,20 +57,41 @@ class open_id_google implements open_id_authenticator {
 		$this->client_secret = $settings->get('open_id', 'google_client_secret');
 		$this->redirect_uri = $settings->get('open_id', 'google_redirect_uri');
 
-		// Match the google email address to the user email address field in v_users table
-		$this->match_username_to_email = $settings->get('open_id', 'use_email_as_username', true);
-
-		// Match the google email address to the username field in v_users table
-		$this->unique_username = $settings->get('users', 'unique', false);
-
 		// Set the suppress errors with a default of true to avoid UI interruption
 		$this->suppress_errors = $settings->get('open_id', 'suppress_errors', true);
+
+		// Get the field mapping for the google email address to the user email address or username field in v_users table
+		$mapping = $settings->get('open_id', 'google_username_mapping');
+
+		// When errors are allowed and the field mapping is empty throw an error
+		if (empty($mapping) && !$this->suppress_errors) throw new \InvalidArgumentException('google_map_fields must not be empty');
+
+		// When errors are allowed and the mapping does not have an equals (=) sign throw an error
+		if (!str_contains($mapping, '=') && !$this->suppress_errors) throw new \InvalidArgumentException('google_username_mapping must be in the form of google_oidc_field=user_column');
+
+		// Map the Google OpenID Connect (OIDC) field to the user table field to validate the user exists
+		[$google_field, $table_field] = explode('=', $mapping, 2);
+
+		// Trim the whitespace for field names and store in the object
+		$this->google_field = trim($google_field);
+		$this->table_field = trim($table_field);
+
+		// Test that both fields for lookup are not empty
+		if (empty($this->google_field) && !$this->suppress_errors) throw new \InvalidArgumentException('Google OpenID Connect field must not be emtpy in google_oidc_field default settings');
+		if (empty($this->table_field) && !$this->suppress_errors) throw new \InvalidArgumentException('Users table field must not be emtpy in google_oidc_field default settings');
+
+		// Test the 'table_field' column exists in the v_users table
+		if (!empty($this->table_field) && !$settings->database()->column_exists(database::TABLE_PREFIX . 'users', $this->table_field) && !$this->suppress_errors) throw new \InvalidArgumentException("Users table field $this->table_field does not exist in the users table");
 
 		// Get the google_metadata_domain
 		$domain = $settings->get('open_id', 'google_metadata_domain');
 
 		// When errors are allowed and domain is empty throw an error
 		if (empty($domain) && !$this->suppress_errors) throw new \InvalidArgumentException('google_metadata_domain must not be empty');
+
+		// We must use a secure protocol to connect
+		if (str_starts_with($domain, 'http://')) $domain = substr($domain, 7);		//remove http
+		if (!str_starts_with($domain, 'https://')) $domain = 'https://' . $domain;	//add https
 
 		// Get the google_metadata_path
 		$path = $settings->get('open_id', 'google_metadata_path');
@@ -74,7 +101,9 @@ class open_id_google implements open_id_authenticator {
 
 		// Ensure path starts with a slash (/)
 		if (!str_starts_with($path, '/')) $path = '/' . $path;
-		$this->discovery_url = 'https://' . $domain . $path;
+
+		// Form completed URI
+		$this->discovery_url = $domain . $path;
 
 		// Set the scope
 		$this->scope = $scope;
@@ -83,7 +112,7 @@ class open_id_google implements open_id_authenticator {
 	/**
 	 * When successful, the array with the authorized key set to true with user details. When the function fails to authenticate a user a boolean false is returned
 	 * @global database $database
-	 * @return array Returns an array with user details or false when failed authentication
+	 * @return array Returns an array with user details or an empty array when authentication failed
 	 */
 	public function authenticate(): array {
 
@@ -150,27 +179,15 @@ class open_id_google implements open_id_authenticator {
 					global $database;
 					$sql  = 'select user_uuid, username, u.domain_uuid, d.domain_name from v_users u';
 					$sql .=	' left outer join v_domains d on d.domain_uuid = u.domain_uuid';
-					// Global or Domain Default Settings must be set to use either the user_email field or
-					// a unique username for all users
-					if ($this->match_username_to_email) {
-						$sql .=	' where user_email = :user_email';
-					} elseif ($this->unique_username) {
-						$sql .= ' where username = :username';
-					} else {
-						if (!$this->suppress_errors) {
-							throw new InvalidArgumentException("Global or Domain Default Settings must be set to use either the user_email field or a unique username for all users using 'unique' set to 'true' in category 'Users'");
-						}
-						//empty result
-						return $result;
-					}
+					$sql .=	" where $this->table_field = :$this->table_field";
 					$sql .= " and user_enabled = 'true'";
 					$sql .=	' limit 1';
-					$parameters = [];
 
 					//
-					// Username is the email address of user
+					// Use the field from google to find user in the v_users table
 					//
-					$parameters['user_email'] = $user_info['email'];
+					$parameters = [];
+					$parameters[$this->table_field] = $user_info[$this->google_field];
 
 					//
 					// Get the user array from the local database
