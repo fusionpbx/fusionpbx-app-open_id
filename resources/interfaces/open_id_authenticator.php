@@ -36,5 +36,4 @@ interface open_id_authenticator {
 	 */
 	public function authenticate(): array;
 	public static function get_banner_image(): string;
-	public static function get_banner_alt(): string;
 }

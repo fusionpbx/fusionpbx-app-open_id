@@ -352,18 +352,15 @@ class open_id_google implements open_id_authenticator {
 	public static function get_banner_image(): string {
 		global $settings;
 		$google_banner = $settings->get('open_id', 'google_image', '');
+		$text = new text();
+		$text_array = $text->get();
+		$alt = $text_array['alt-banner'] ?? 'Sign-in Using Google';
 		if (file_exists($google_banner)) {
 			$file_handle = fopen($google_banner, 'rb');
 			$data = base64_encode(fread($file_handle, 2182));
 			fclose($file_handle);
-			return $data;
+			return "<img src='data:image/png;base64,$data' alt='$alt'/>";
 		}
-		return '';
-	}
-
-	public static function get_banner_alt(): string {
-		$text = new text();
-		$text_array = $text->get();
-		return $text_array['alt-banner'] ?? 'Sign-in Using Google';
+		return $alt;
 	}
 }

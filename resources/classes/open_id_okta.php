@@ -435,11 +435,19 @@ class open_id_okta implements open_id_authenticator, logout_event {
 		}
 	}
 
-	public static function get_banner_alt(): string {
-		return "Sign-in with OKTA OpenID Connect";
-	}
-
 	public static function get_banner_image(): string {
-		return "OKTA IMAGE PLACEHOLDER";
+		return "<div class=''"
+				. " style='display: inline-block;"
+				. " border: 2px solid #ccc;"
+				. " border-radius: 4px;"
+				. " padding: 8px 22px;"
+				. " background-color: #fff;"
+				. " color: #444;"
+				. " font-family: Arial, sans-serif;"
+				. " text-decoration: none;"
+				. " cursor: pointer;'>"
+					. "Sign-in with OKTA"
+				. "</div>"
+		;
 	}
 }
