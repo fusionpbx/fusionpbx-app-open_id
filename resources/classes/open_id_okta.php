@@ -190,12 +190,12 @@ class open_id_okta implements open_id_authenticator, logout_event {
 	 * @return string The built authentication URL.
 	 */
 	private function build_params() {
-		$code_challenge = self::encode_string_to_url_base64(hash('sha256', $_SESSION['openid_code_verifier'], true));
+		$code_challenge = self::encode_string_to_url_base64(hash('sha256', $_SESSION['okta_code_verifier'], true));
 		$params = [
 			'response_type' => 'code',
 			'client_id' => $this->client_id,
 			'redirect_uri' => $this->redirect_uri,
-			'state' => $_SESSION['openid_state'],
+			'state' => $_SESSION['okta_state'],
 			'scope' => 'openid profile',
 			'code_challenge' => $code_challenge,
 			'code_challenge_method' => 'S256',
@@ -273,7 +273,7 @@ class open_id_okta implements open_id_authenticator, logout_event {
 		//
 		// Set up the URL for OKTA OpenID
 		//
-		$metadata_domain = $settings->get('open_id', 'openid_metadata_domain');
+		$metadata_domain = $settings->get('open_id', 'okta_metadata_domain');
 
 		//
 		// We must use a secure protocol to connect
@@ -288,7 +288,7 @@ class open_id_okta implements open_id_authenticator, logout_event {
 		//
 		// Get the server name
 		//
-		$metadata_server = $settings->get('open_id', 'openid_metadata_server', '');
+		$metadata_server = $settings->get('open_id', 'okta_metadata_server', '');
 		if (!str_starts_with($metadata_server, '/')) {
 			$metadata_server = '/' . $metadata_server;
 		}
@@ -296,22 +296,35 @@ class open_id_okta implements open_id_authenticator, logout_event {
 		//
 		// Complete the logout URI variables
 		//
-		$redirect_uri = urlencode($settings->get('open_id', 'openid_redirect_uri', $_SERVER['REQUEST_SCHEME'] . '://' . $_SERVER['HTTP_HOST'] . '/login.php'));
-		$logout_url = $_SESSION['openid_end_session'] ?? null;
-		$token = $_SESSION['openid_session_token'] ?? null;
+		$redirect_uri = urlencode($settings->get('open_id', 'okta_redirect_uri', $_SERVER['REQUEST_SCHEME'] . '://' . $_SERVER['HTTP_HOST'] . '/login.php'));
+		$logout_url = $_SESSION['okta_end_session'] ?? null;
+		$token = $_SESSION['okta_session_token'] ?? null;
 
 		//
-		// Short-circuit the logout process so we can de-authenticate with the OpenID server
+		// Short-circuit the logout process so we can de-authenticate on the OpenID server
 		//
 		if ($token !== null) {
 			session_unset();
 			session_destroy();
 			// Set a post_logout_redirect parameter
-			$redirect = ($logout_url === null) ? '' : "&post_logout_redirect_uri={$redirect_uri}";
+			$redirect = $logout_url ?? "&post_logout_redirect_uri={$redirect_uri}";
 			// Redirect user
 			header("Location: {$logout_url}?id_token_hint={$token}{$redirect}");
 			exit();
 		}
+
+		//
+		// Clean up session data if no token
+		//
+		unset($_SESSION['okta_access_token']);
+		unset($_SESSION['okta_session_token']);
+		unset($_SESSION['okta_end_session']);
+		unset($_SESSION['okta_state']);
+		unset($_SESSION['okta_code_verifier']);
+
+		//
+		// Return back to logout process
+		//
 		return;
 	}
 
@@ -333,8 +346,8 @@ class open_id_okta implements open_id_authenticator, logout_event {
 
 		if (!isset($_GET['code'])) {
 			// Set the state and code_verifier
-			$_SESSION['openid_state'] = bin2hex(random_bytes(5));
-			$_SESSION['openid_code_verifier'] = bin2hex(random_bytes(50));
+			$_SESSION['okta_state'] = bin2hex(random_bytes(5));
+			$_SESSION['okta_code_verifier'] = bin2hex(random_bytes(50));
 
 			// Send the authentication request to the authorization server
 			$authorize_url = $metadata['authorization_endpoint'] . '?' . $this->build_params();
@@ -345,7 +358,7 @@ class open_id_okta implements open_id_authenticator, logout_event {
 		} else {
 
 			// State must match
-			if ($_SESSION['openid_state'] != $_GET['state']) {
+			if ($_SESSION['okta_state'] != $_GET['state']) {
 				die('Authorization server returned an invalid state parameter');
 			}
 
@@ -361,7 +374,7 @@ class open_id_okta implements open_id_authenticator, logout_event {
 				'redirect_uri' => $this->redirect_uri,
 				'client_id' => $this->client_id,
 				'client_secret' => $this->client_secret,
-				'code_verifier' => $_SESSION['openid_code_verifier'],
+				'code_verifier' => $_SESSION['okta_code_verifier'],
 					], $this->curl_error);
 
 			// We should have an access token
@@ -411,9 +424,9 @@ class open_id_okta implements open_id_authenticator, logout_event {
 				}
 
 				//save necessary tokens so we can logout
-				$_SESSION['openid_access_token'] = $access_token['access_token'];
-				$_SESSION['openid_session_token'] = $access_token['id_token'];
-				$_SESSION['openid_end_session'] = $metadata['end_session_endpoint'];
+				$_SESSION['okta_access_token']  = $access_token['access_token'];
+				$_SESSION['okta_session_token'] = $access_token['id_token'];
+				$_SESSION['okta_end_session']   = $metadata['end_session_endpoint'];
 
 				//set up the response from the plugin
 				$result["plugin"] = self::class;
