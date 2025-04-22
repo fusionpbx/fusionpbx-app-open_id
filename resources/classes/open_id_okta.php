@@ -32,7 +32,7 @@
  * @author Tim Fry <tim@fusionpbx.com>
  * @requires $_SESSION
  */
-class open_id_okta implements open_id_authenticator, logout_event {
+class open_id_okta implements open_id_authenticator {
 
 	/**
 	 * The authentication URL for the OpenID provider
