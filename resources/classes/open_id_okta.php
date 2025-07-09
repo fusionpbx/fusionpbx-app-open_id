@@ -463,4 +463,12 @@ class open_id_okta implements open_id_authenticator, logout_event {
 				. "</div>"
 		;
 	}
+
+	public static function pre_session_destroy_logout_event(string $logout_destination) {
+
+	}
+
+	public static function post_session_destroy_logout_event(string $logout_destination) {
+
+	}
 }
