@@ -35,5 +35,18 @@ interface open_id_authenticator {
 	 * authenticate must return an array
 	 */
 	public function authenticate(): array;
-	public static function get_banner_image(): string;
+
+	/**
+	 * Returns the banner image as a base64 encoded image
+	 * @param \settings $settings
+	 * @return string
+	 */
+	public static function get_banner_image(settings $settings): string;
+
+	/**
+	 * Returns the css class to style the banner
+	 * @param \settings $settings
+	 * @return string
+	 */
+	public static function get_banner_css_class(settings $settings): string;
 }

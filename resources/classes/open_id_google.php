@@ -44,12 +44,9 @@ class open_id_google implements open_id_authenticator {
 	/**
 	 * Set up the Google URL parameters and object variables
 	 *
-	 * @param string $client_id     Your Google Client ID.
-	 * @param string $client_secret Your Google Client Secret.
-	 * @param string $redirect_uri  The redirect URI registered with Google.
-	 * @param string $scope         Space-separated scopes (default: "openid email profile").
+	 * @param string $scope Space-separated scopes (default: "openid email profile").
 	 */
-	public function __construct($scope = "openid email profile") {
+	public function __construct(string $scope = "openid email profile") {
 		global $settings;
 
 		//
@@ -135,9 +132,11 @@ class open_id_google implements open_id_authenticator {
 	}
 
 	/**
-	 * When successful, the array with the authorized key set to true with user details. When the function fails to authenticate a user a boolean false is returned
-	 * @global database $database
+	 * When successful, the array with the authorized key set to true with user details. When the function fails to
+	 * authenticate a user a boolean false is returned
 	 * @return array Returns an array with user details or an empty array when authentication failed
+	 * @throws \Random\RandomException
+	 * @global database $database
 	 */
 	public function authenticate(): array {
 
@@ -150,7 +149,7 @@ class open_id_google implements open_id_authenticator {
 		$this->load_discovery();
 		if (!isset($_GET['code'])) {
 			//detect redirection loop
-			if (!empty($_SESSION['open_id_authorize']) && $_SESSION['open_id_authorize']) {
+			if (!empty($_SESSION['open_id_authorize'])) {
 				$_SESSION['open_id_authorize'] = false;
 				//redirect loop detected
 				die('unable to redirect');
@@ -210,7 +209,7 @@ class open_id_google implements open_id_authenticator {
 					$sql .=	' limit 1';
 
 					//
-					// Use the field from google to find user in the v_users table
+					// Use the field from Google to find user in the v_users table
 					//
 					$parameters = [];
 					$parameters[$this->table_field] = $user_info[$this->google_field];
@@ -221,13 +220,14 @@ class open_id_google implements open_id_authenticator {
 					$user = $database->select($sql, $parameters, 'row');
 					if (empty($user)) {
 						//
-						// The user was not found so authentication failed so return empty result
+						// The user was not found or rejected. Authentication failed, so return empty result
 						//
 						return $result;
 					}
 				} else {
 					//
-					// Google did not authenticate the access token or user cancelled so return empty result
+					//
+					// Google did not authenticate the access token or the user cancelled request, so return an empty result
 					//
 					return $result;
 				}
@@ -288,7 +288,7 @@ class open_id_google implements open_id_authenticator {
 	 *
 	 * @return string The Google authorization URL.
 	 */
-	public function get_authorization_url() {
+	public function get_authorization_url(): string {
 		// Generate a state value for CSRF protection.
 		$this->state = $_SESSION['open_id_state'];
 
@@ -311,7 +311,7 @@ class open_id_google implements open_id_authenticator {
 	 * @param string $code The authorization code received from Google.
 	 * @return array|null An associative array containing tokens or null on failure.
 	 */
-	public function exchange_code_for_token($code) {
+	public function exchange_code_for_token(string $code): ?array {
 		$params = [
 			'code' => $code,
 			'client_id' => $this->client_id,
@@ -338,7 +338,7 @@ class open_id_google implements open_id_authenticator {
 	 * @param string $access_token The access token.
 	 * @return array|null An associative array of user info, or null on failure.
 	 */
-	public function get_user_info($access_token) {
+	public function get_user_info(string $access_token): ?array {
 		$ch = curl_init($this->userinfo_endpoint);
 		curl_setopt($ch, CURLOPT_HTTPHEADER, [
 			"Authorization: Bearer " . $access_token
@@ -349,8 +349,7 @@ class open_id_google implements open_id_authenticator {
 		return json_decode($response, true);
 	}
 
-	public static function get_banner_image(): string {
-		global $settings;
+	public static function get_banner_image(settings $settings): string {
 		$google_banner = $settings->get('open_id', 'google_image', '');
 		$text = new text();
 		$text_array = $text->get();
@@ -362,5 +361,9 @@ class open_id_google implements open_id_authenticator {
 			return "<img src='data:image/png;base64,$data' alt='$alt'/>";
 		}
 		return $alt;
+	}
+
+	public static function get_banner_css_class(settings $settings): string {
+		return $settings->get('open_id', 'open_id_css_class', 'banner_css_class');
 	}
 }
