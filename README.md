@@ -65,13 +65,23 @@ Each option listed below is universal for all authenticator modules.
 - **okta_metadata_server** *text* - Defaults to `default`. The okta_metadata_domain and okta_metadata_server are combined to create the discovery URI.
 - **okta_username_mapping** *text* - Defaults to `username=user_email`. The left-hand part (before equals) is the OpenID Connect field. The right-hand part (after equals) is the local database column the user field should map to. This is used to map the fields provided by OKTA after authentication with the OpenID Connect Authentication Server. The OKTA `username` field contains the email address associated with the account.
 
+#### Microsoft Plugin Configuration
+Authenticates against Microsoft Entra ID (formerly Azure AD), which is the identity provider behind Microsoft 365, Outlook, and personal Microsoft accounts. Register a Web application under **App registrations** in the Microsoft Entra admin center (`https://entra.microsoft.com`) to obtain the client id and secret.
+- **microsoft_client_id** *text* - The *Application (client) ID* from the Microsoft Entra app registration.
+- **microsoft_client_secret** *text* - The client secret *value* created under *Certificates & secrets* in the Microsoft Entra app registration.
+- **microsoft_redirect_uri** *text* - Defaults to `https://{$domain_name}/app/open_id/open_id.php?action={$plugin}`. This is a dynamic setting where the values for `{$domain_name}` and `{$plugin}` are replaced with the domain name used to connect to your FusionPBX instance. For example, connecting via `https://fusionpbx.example.com/login.php` results in a redirect URL of https://fusionpbx.example.com/app/open_id/open_id.php?action=open_id_microsoft The redirect URI registered in the Microsoft Entra app registration (platform *Web*) must match this value.
+- **microsoft_metadata_domain** *text* - Defaults to `login.microsoftonline.com`, the Microsoft identity platform authentication server used for discovery.
+- **microsoft_metadata_path** *text* - Defaults to `/common/v2.0/.well-known/openid-configuration`. The `common` segment allows work, school, and personal Microsoft accounts. Replace `common` with your *tenant ID* to restrict sign-in to a single organization, or use `organizations` for any work/school account. The `microsoft_metadata_domain` and `microsoft_metadata_path` are combined to create the discovery URI.
+- **microsoft_username_mapping** *text* - Defaults to `preferred_username=user_email`. The left-hand part (before equals) is the OpenID Connect claim. The right-hand part (after equals) is the local database column it maps to. The Microsoft `preferred_username` claim contains the email address / UPN associated with the account and is reliably present for work, school, and personal accounts (unlike the `email` claim, which is only returned when present on the account).
+- **microsoft_image** *text* - Optional path to a Microsoft image for the login banner. When left empty, a branded "Sign in with Microsoft" button is rendered automatically.
+
 #### Notes:
 
 User email address must be unique when using the default mapping. The column used in the mapping must not have two records that match. If two accounts have the same email address, the authentication would not know which user to map to. To ensure unique user names for login, enable the Global Default Setting *Unique* in the *Users* category with a *value* of `global`. Then, set the `okta_username_mapping` to have a value of `username=username` and the `google_username_mapping` to have a value of `email=username`. This means the user login screen can use an email address as the user login as well as the OpenID Connect Authentication.
 
 The "Logout" menu option in FusionPBX does not logout of OKTA or any OIDC service that requires a callback to remove the active token.
 
-The OpenID Connect app has been tested with Google and OKTA Developer Edition successfully.
+The OpenID Connect app has been tested with Google, OKTA Developer Edition, and Microsoft Entra ID successfully.
 
 ---
 
