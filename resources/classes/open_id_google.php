@@ -148,19 +148,20 @@ class open_id_google implements open_id_authenticator {
 
 		$this->load_discovery();
 		if (!isset($_GET['code'])) {
-			//detect redirection loop
-			if (!empty($_SESSION['open_id_authorize'])) {
-				$_SESSION['open_id_authorize'] = false;
-				//redirect loop detected
-				die('unable to redirect');
+			//
+			// The provider returned an error (e.g. the user cancelled), so return the failed result
+			//
+			if (isset($_GET['error'])) {
+				unset($_SESSION['open_id_state'], $_SESSION['open_id_code_verifier']);
+				return $result;
 			}
 
 			//
-			// Set the state and code_verifier
+			// Set the state and code_verifier. A new request always starts a new authorization so a
+			// double click, the back button or an abandoned sign in does not block the next attempt.
 			//
 			$_SESSION['open_id_state'] = bin2hex(random_bytes(5));
 			$_SESSION['open_id_code_verifier'] = bin2hex(random_bytes(50));
-			$_SESSION['open_id_authorize'] = true;
 
 			//
 			// Send the authentication request to the authorization server
@@ -173,6 +174,19 @@ class open_id_google implements open_id_authenticator {
 			header('Location: ' . $authorize_url);
 			exit();
 		} else {
+
+			//
+			// Validate the state parameter (CSRF protection)
+			//
+			if (empty($_GET['state']) || ($_SESSION['open_id_state'] ?? null) !== $_GET['state']) {
+				unset($_SESSION['open_id_state'], $_SESSION['open_id_code_verifier']);
+				return $result;
+			}
+
+			//
+			// The state can only be used once
+			//
+			unset($_SESSION['open_id_state']);
 
 			//
 			// Get the code
