@@ -140,6 +140,9 @@ class open_id_okta implements open_id_authenticator {
 		if (!$this->suppress_errors && empty($this->okta_field)) throw new \InvalidArgumentException('OKTA OpenID Connect field must not be emtpy in okta_oidc_field default settings');
 		if (!$this->suppress_errors && empty($this->table_field)) throw new \InvalidArgumentException('Users table field must not be emtpy in okta_oidc_field default settings');
 
+		//Security: the table field is inserted into the SQL statement below so it must always be a valid column name
+		if (!empty($this->table_field) && !database::is_valid_identifier($this->table_field)) throw new \InvalidArgumentException("Users table field $this->table_field is not a valid column name");
+
 		// Test the 'table_field' column exists in the v_users table
 		if (!$this->suppress_errors && !empty($this->table_field) && !$settings->database()->column_exists(database::TABLE_PREFIX . 'users', $this->table_field)) throw new \InvalidArgumentException("Users table field $this->table_field does not exist in the users table");
 
@@ -346,7 +349,7 @@ class open_id_okta implements open_id_authenticator {
 
 		if (!isset($_GET['code'])) {
 			// Set the state and code_verifier
-			$_SESSION['okta_state'] = bin2hex(random_bytes(5));
+			$_SESSION['okta_state'] = bin2hex(random_bytes(16));
 			$_SESSION['okta_code_verifier'] = bin2hex(random_bytes(50));
 
 			// Send the authentication request to the authorization server
@@ -358,7 +361,7 @@ class open_id_okta implements open_id_authenticator {
 		} else {
 
 			// State must match
-			if ($_SESSION['okta_state'] != $_GET['state']) {
+			if (empty($_GET['state']) || ($_SESSION['okta_state'] ?? null) !== $_GET['state']) {
 				die('Authorization server returned an invalid state parameter');
 			}
 

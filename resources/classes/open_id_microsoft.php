@@ -132,6 +132,9 @@ class open_id_microsoft implements open_id_authenticator {
 		if (!$this->suppress_errors && empty($this->microsoft_field)) throw new \InvalidArgumentException('Microsoft OpenID Connect field must not be empty in microsoft_username_mapping default settings');
 		if (!$this->suppress_errors && empty($this->table_field)) throw new \InvalidArgumentException('Users table field must not be empty in microsoft_username_mapping default settings');
 
+		//Security: the table field is inserted into the SQL statement below so it must always be a valid column name
+		if (!empty($this->table_field) && !database::is_valid_identifier($this->table_field)) throw new \InvalidArgumentException("Users table field $this->table_field is not a valid column name");
+
 		// Test the 'table_field' column exists in the v_users table
 		if (!$this->suppress_errors && !empty($this->table_field) && !$settings->database()->column_exists(database::TABLE_PREFIX . 'users', $this->table_field)) throw new \InvalidArgumentException("Users table field $this->table_field does not exist in the users table");
 
@@ -189,7 +192,7 @@ class open_id_microsoft implements open_id_authenticator {
 			//
 			// Set the state and code_verifier
 			//
-			$_SESSION['open_id_state'] = bin2hex(random_bytes(5));
+			$_SESSION['open_id_state'] = bin2hex(random_bytes(16));
 			$_SESSION['open_id_code_verifier'] = bin2hex(random_bytes(50));
 			$_SESSION['open_id_authorize'] = true;
 
@@ -435,7 +438,7 @@ class open_id_microsoft implements open_id_authenticator {
 	public static function get_banner_image(settings $settings): string {
 		// Use a configured image if present, otherwise render a branded button
 		$banner = $settings->get('open_id', 'microsoft_image', '');
-		if (!empty($banner) && file_exists($banner)) {
+		if (!empty($banner) && is_file($banner) && @getimagesize($banner) !== false) {
 			$file_handle = fopen($banner, 'rb');
 			$data = base64_encode(fread($file_handle, filesize($banner)));
 			fclose($file_handle);

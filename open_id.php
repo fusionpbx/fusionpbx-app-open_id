@@ -35,15 +35,27 @@ if (isset($_GET['action']) && $settings->get('open_id', 'enabled', false)) {
 	$open_id_authenticator = urldecode($_GET['action']);
 
 	//sanitize the name like auto_loader
-	$open_id_authenticator = preg_replace('[^a-zA-Z0-9_]', '', $open_id_authenticator);
+	$open_id_authenticator = preg_replace('/[^a-zA-Z0-9_]/', '', $open_id_authenticator);
+
+	//only allow authenticators that are enabled in the open_id methods setting
+	$methods = $settings->get('open_id', 'methods', []);
+	if (!is_array($methods) || !in_array($open_id_authenticator, $methods, true)) {
+		exit();
+	}
 
 	//make sure the class exists
 	if (!class_exists($open_id_authenticator)) {
 		exit();
 	}
 
-	//create the authenticator
-	$authenticator = new $open_id_authenticator();
+	//create the authenticator, fail closed on a misconfiguration unless errors are being shown for debugging
+	$suppress_errors = $settings->get('open_id', 'suppress_errors', true);
+	try {
+		$authenticator = new $open_id_authenticator();
+	} catch (\Throwable $e) {
+		if (!$suppress_errors) { throw $e; }
+		exit();
+	}
 
 	//make sure it implements the open_id_authenticator
 	if (!($authenticator instanceof open_id_authenticator)) {
@@ -52,7 +64,9 @@ if (isset($_GET['action']) && $settings->get('open_id', 'enabled', false)) {
 
 	//get the result array from the authenticator
 	$result = $authenticator->authenticate();
-	if (!empty($result)) {
+
+	//only create a session when the authenticator has authorized the user
+	if (!empty($result) && !empty($result['authorized'])) {
 		//create the user session
 		authentication::create_user_session($result, $settings);
 

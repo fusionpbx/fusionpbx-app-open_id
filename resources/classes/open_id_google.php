@@ -102,6 +102,9 @@ class open_id_google implements open_id_authenticator {
 		if (!$this->suppress_errors && empty($this->google_field)) throw new \InvalidArgumentException('Google OpenID Connect field must not be emtpy in google_oidc_field default settings');
 		if (!$this->suppress_errors && empty($this->table_field)) throw new \InvalidArgumentException('Users table field must not be emtpy in google_oidc_field default settings');
 
+		//Security: the table field is inserted into the SQL statement below so it must always be a valid column name
+		if (!empty($this->table_field) && !database::is_valid_identifier($this->table_field)) throw new \InvalidArgumentException("Users table field $this->table_field is not a valid column name");
+
 		// Test the 'table_field' column exists in the v_users table
 		if (!$this->suppress_errors && !empty($this->table_field) && !$settings->database()->column_exists(database::TABLE_PREFIX . 'users', $this->table_field)) throw new \InvalidArgumentException("Users table field $this->table_field does not exist in the users table");
 
@@ -158,7 +161,7 @@ class open_id_google implements open_id_authenticator {
 			//
 			// Set the state and code_verifier
 			//
-			$_SESSION['open_id_state'] = bin2hex(random_bytes(5));
+			$_SESSION['open_id_state'] = bin2hex(random_bytes(16));
 			$_SESSION['open_id_code_verifier'] = bin2hex(random_bytes(50));
 			$_SESSION['open_id_authorize'] = true;
 
@@ -175,9 +178,23 @@ class open_id_google implements open_id_authenticator {
 		} else {
 
 			//
+			// Validate the state parameter (CSRF protection)
+			//
+			if (empty($_GET['state']) || ($_SESSION['open_id_state'] ?? null) !== $_GET['state']) {
+				die('Authorization server returned an invalid state parameter');
+			}
+
+			//
+			// The authorization server can respond with an error
+			//
+			if (isset($_GET['error'])) {
+				die('Authorization server returned an error: ' . htmlspecialchars($_GET['error']));
+			}
+
+			//
 			// Get the code
 			//
-			$code = $_REQUEST['code'];
+			$code = $_GET['code'];
 
 			//
 			// Send the code to Google to get back the token array
@@ -354,7 +371,7 @@ class open_id_google implements open_id_authenticator {
 		$text = new text();
 		$text_array = $text->get();
 		$alt = $text_array['alt-banner'] ?? 'Sign-in Using Google';
-		if (file_exists($google_banner)) {
+		if (!empty($google_banner) && is_file($google_banner) && @getimagesize($google_banner) !== false) {
 			$file_handle = fopen($google_banner, 'rb');
 			$data = base64_encode(fread($file_handle, 2182));
 			fclose($file_handle);
